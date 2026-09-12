@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { useQueryClient } from '@tanstack/react-query';
+
+import { disconnectEcho } from './echo';
 
 const TOKEN_KEY = 'relay.token';
 
@@ -39,6 +42,9 @@ export function useAuth(): AuthContextValue {
 /** Loads the Keychain token once and exposes it reactively so the root layout can route on it. */
 export function AuthProvider({ children }: PropsWithChildren) {
     const [token, setTokenState] = useState<string | null | undefined>(undefined);
+    // Requires AuthProvider to render inside QueryClientProvider, which it already does
+    // in _layout.tsx.
+    const queryClient = useQueryClient();
 
     useEffect(() => {
         getToken().then(setTokenState);
@@ -51,6 +57,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const signOut = async () => {
         await clearToken();
+        // The QueryClient and the Echo connection both live for the whole app process
+        // (see _layout.tsx and lib/echo.ts), so without this a second person signing in
+        // on the same device would see the first person's cached tickets and messages,
+        // and their channel subscriptions would still be authorised with the first
+        // person's bearer token until they expire.
+        queryClient.clear();
+        disconnectEcho();
         setTokenState(null);
     };
 

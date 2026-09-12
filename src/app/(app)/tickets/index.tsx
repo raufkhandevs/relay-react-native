@@ -9,7 +9,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth';
 import { readableApiError } from '@/lib/api';
-import { useTickets } from '@/lib/queries';
+import { useMe, useTickets } from '@/lib/queries';
 import type { Ticket, TicketStatus } from '@/types/api';
 
 const ROW_HEIGHT = 72;
@@ -87,7 +87,8 @@ function useDelayedLoading(isLoading: boolean, delayMs = 200) {
 export default function TicketListScreen() {
     const insets = useSafeAreaInsets();
     const { signOut } = useAuth();
-    const { data, isLoading, isError, error, refetch, isRefetching } = useTickets();
+    const { data: me } = useMe();
+    const { data, isLoading, isError, error, refetch, isRefetching } = useTickets(me?.id);
     const showSkeleton = useDelayedLoading(isLoading);
 
     return (

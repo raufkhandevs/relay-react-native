@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~57.0.18",
+    "@react-native-community/netinfo": "12.0.1",
     "@tanstack/react-query": "^5.102.8",
     "expo": "~57.0.22",
     "expo-constants": "~57.0.18",
@@ -19,6 +20,8 @@
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
     "expo-web-browser": "~57.0.3",
+    "laravel-echo": "^2.5.0",
+    "pusher-js": "^8.6.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
