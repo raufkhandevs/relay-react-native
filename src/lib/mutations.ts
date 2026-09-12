@@ -3,10 +3,19 @@ import type { Message } from '../types/api';
 
 /**
  * One per distinct message; a retry of the same message reuses the value it
- * was first generated with. Only needs to avoid collisions between messages
- * sent from this device, not cryptographic unpredictability, so this stays a
- * plain Math.random template rather than pulling in expo-crypto for
- * `randomUUID`.
+ * was first generated with.
+ *
+ * The uniqueness requirement is wider than this device: the backend's unique
+ * index is on (ticket_id, idempotency_key) across every client, so a collision
+ * with another device posting to the same ticket would return that device's
+ * message instead of storing this one. A lost message, silently.
+ *
+ * Math.random is still sufficient. The key is 122 random bits in v4 shape, and
+ * two clients would have to collide within one ticket, so the real probability
+ * is negligible. What it does not need is cryptographic unpredictability:
+ * nobody gains anything from guessing a key, because the server only ever
+ * replays a message the caller was already authorised to read. That is why
+ * this does not pull in expo-crypto for `randomUUID`.
  */
 export function newIdempotencyKey(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
