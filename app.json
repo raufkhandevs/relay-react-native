@@ -35,7 +35,13 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Relay uses your photo library to attach a screenshot or photo to a support message."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

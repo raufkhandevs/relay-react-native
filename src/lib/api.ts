@@ -45,9 +45,43 @@ export const api = {
     delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
+/**
+ * GET /attachments/{id} authorises against the ticket, then redirects to a presigned
+ * storage URL. `fetch` follows that redirect itself, so `response.url` is the presigned
+ * URL, resolved fresh on every call rather than ever being cached or stored - it expires
+ * in 5 minutes, and re-resolving is how the server's authorisation runs each time.
+ *
+ * ponytail: this downloads the whole file just to read the final URL, since RN's `fetch`
+ * (a `whatwg-fetch`/XHR polyfill) has no `redirect: 'manual'` support to read the
+ * Location header without following it. Fine at the 10 MB cap this slice enforces;
+ * revisit if attachments grow past that or this call gets hot.
+ */
+export async function resolveAttachmentUrl(attachmentId: number): Promise<string> {
+    const token = await getToken();
+
+    const response = await fetch(`${API_BASE}/api/attachments/${attachmentId}`, {
+        headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+    });
+
+    if (!response.ok) {
+        throw new ApiError(response.status, await response.text());
+    }
+
+    return response.url;
+}
+
 /** ApiError.message is the raw response body, often `{"message": "..."}`. Unwrap it for display. */
 export function readableApiError(err: unknown): string {
     if (err instanceof ApiError) {
+        // A 413 is rejected before Laravel's router runs (a body-size limit upstream of
+        // the app), so there is no JSON to unwrap - unlike a 422, which always carries a
+        // readable `message` from validation.
+        if (err.status === 413) {
+            return 'That file is too large. Relay accepts attachments up to 10 MB.';
+        }
         try {
             const body = JSON.parse(err.message) as { message?: string };
             if (typeof body.message === 'string') {

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    Alert,
     FlatList,
     KeyboardAvoidingView,
+    Linking,
     Platform,
     Pressable,
     StyleSheet,
@@ -9,6 +11,9 @@ import {
     View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { openBrowserAsync } from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -16,15 +21,18 @@ import { ThemedView } from '@/components/themed-view';
 import { DangerColor, FontFamily, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useTicketChannel } from '@/hooks/use-ticket-channel';
-import { readableApiError } from '@/lib/api';
-import { newIdempotencyKey, sendMessage } from '@/lib/mutations';
+import { readableApiError, resolveAttachmentUrl } from '@/lib/api';
+import { newIdempotencyKey, sendMessage, type PickedFile } from '@/lib/mutations';
 import { useMe, useMessages } from '@/lib/queries';
-import type { Message } from '@/types/api';
+import type { Attachment, Message } from '@/types/api';
 
 type PendingMessage = {
     clientId: string;
     body: string;
+    file?: PickedFile;
     status: 'sending' | 'failed';
+    /** Fraction 0-1, set only while a file upload is in flight. */
+    progress?: number;
 };
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -40,6 +48,114 @@ function formatTimestamp(iso: string): string {
     const date = new Date(iso);
     const isToday = date.toDateString() === new Date().toDateString();
     return (isToday ? timeFormatter : dateTimeFormatter).format(date);
+}
+
+function isImageMime(mime: string): boolean {
+    return mime.startsWith('image/');
+}
+
+function formatBytes(bytes: number): string {
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+        return `${Math.round(bytes / 1024)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Resolves and opens an attachment through the authorised endpoint, never a stored
+ * storage URL - each tap re-authorises, because the presigned URL it resolves to is
+ * only good for 5 minutes and access can change between one tap and the next.
+ */
+async function openAttachment(attachment: Attachment) {
+    try {
+        const url = await resolveAttachmentUrl(attachment.id);
+        await openBrowserAsync(url);
+    } catch (err) {
+        Alert.alert('Could not open attachment', readableApiError(err));
+    }
+}
+
+/** Resolves an image attachment's presigned URL for inline display. Never cached to disk or state beyond this component's lifetime. */
+function useAttachmentImageUrl(attachmentId: number): string | null {
+    const [url, setUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        // attachmentId never changes for a mounted instance - each AttachmentImage is
+        // keyed by it in MessageAttachments - so there is no stale URL to reset here.
+        let cancelled = false;
+        resolveAttachmentUrl(attachmentId).then(
+            (resolved) => {
+                if (!cancelled) {
+                    setUrl(resolved);
+                }
+            },
+            () => {
+                // Left null: the row below falls back to nothing rather than a broken image.
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [attachmentId]);
+
+    return url;
+}
+
+function AttachmentImage({ attachment }: { attachment: Attachment }) {
+    const theme = useTheme();
+    const url = useAttachmentImageUrl(attachment.id);
+
+    return (
+        <Pressable
+            testID={`attachment-${attachment.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${attachment.original_name}`}
+            onPress={() => openAttachment(attachment)}
+            style={[styles.attachmentImageWrap, { backgroundColor: theme.backgroundElement }]}>
+            {url ? (
+                <Image source={{ uri: url }} style={styles.attachmentImage} contentFit="cover" />
+            ) : null}
+        </Pressable>
+    );
+}
+
+function AttachmentRow({ attachment }: { attachment: Attachment }) {
+    const theme = useTheme();
+    return (
+        <Pressable
+            testID={`attachment-${attachment.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${attachment.original_name}`}
+            onPress={() => openAttachment(attachment)}
+            style={[styles.attachmentRow, { backgroundColor: theme.backgroundElement, borderColor: theme.rule }]}>
+            <ThemedText style={styles.attachmentRowName} numberOfLines={1}>
+                {attachment.original_name}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+                {formatBytes(attachment.size_bytes)}
+            </ThemedText>
+        </Pressable>
+    );
+}
+
+function MessageAttachments({ attachments }: { attachments: Attachment[] }) {
+    if (attachments.length === 0) {
+        return null;
+    }
+    return (
+        <View style={styles.attachmentsList}>
+            {attachments.map((attachment) =>
+                isImageMime(attachment.mime) ? (
+                    <AttachmentImage key={attachment.id} attachment={attachment} />
+                ) : (
+                    <AttachmentRow key={attachment.id} attachment={attachment} />
+                ),
+            )}
+        </View>
+    );
 }
 
 function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean }) {
@@ -61,6 +177,7 @@ function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean })
                         : { backgroundColor: theme.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.rule },
                 ]}>
                 <ThemedText style={styles.bubbleText}>{message.body}</ThemedText>
+                <MessageAttachments attachments={message.attachments} />
             </View>
             <ThemedText type="small" themeColor="textSecondary" style={styles.caption}>
                 {message.author.name}{'  '}
@@ -78,10 +195,17 @@ function PendingBubble({ entry, onRetry }: { entry: PendingMessage; onRetry: (cl
         <View style={[styles.bubbleRow, styles.bubbleRowOwn]}>
             <View style={[styles.bubble, styles.bubblePending, { backgroundColor: theme.surfaceOwn }]}>
                 <ThemedText style={styles.bubbleText}>{entry.body}</ThemedText>
+                {entry.file ? (
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.pendingFileName}>
+                        {entry.file.name}
+                    </ThemedText>
+                ) : null}
             </View>
             {entry.status === 'sending' ? (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.caption}>
-                    Sending…
+                    {entry.file && entry.progress !== undefined
+                        ? `Uploading… ${Math.round(entry.progress * 100)}%`
+                        : 'Sending…'}
                 </ThemedText>
             ) : (
                 <View style={styles.retryRow}>
@@ -130,48 +254,144 @@ function useDelayedLoading(isLoading: boolean, delayMs = 200) {
     return show;
 }
 
-function Composer({ onSend }: { onSend: (body: string) => void }) {
+/**
+ * Asks for photo library access at the point of use rather than at launch, and only
+ * asks again when the OS says it can (`canAskAgain`). Returns null on cancel or refusal.
+ */
+async function pickLibraryImage(): Promise<PickedFile | null | 'denied'> {
+    const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+    let status = current.status;
+    if (status !== 'granted' && current.canAskAgain) {
+        const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        status = requested.status;
+    }
+    if (status !== 'granted') {
+        return 'denied';
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'] });
+    if (result.canceled || result.assets.length === 0) {
+        return null;
+    }
+
+    const asset = result.assets[0];
+    return {
+        uri: asset.uri,
+        // The library doesn't always know a filename (limited access, some content
+        // providers); fall back to the last path segment rather than leaving it blank.
+        name: asset.fileName ?? asset.uri.split('/').pop() ?? 'attachment',
+        // Sent through untouched: an iPhone photo is HEIC, and the server - not this
+        // client - decides whether the real type is acceptable.
+        mimeType: asset.mimeType ?? 'application/octet-stream',
+    };
+}
+
+function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => void }) {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const [body, setBody] = useState('');
+    const [attachment, setAttachment] = useState<PickedFile | null>(null);
+    const [permissionDenied, setPermissionDenied] = useState(false);
     const trimmed = body.trim();
+
+    const attach = async () => {
+        setPermissionDenied(false);
+        const picked = await pickLibraryImage();
+        if (picked === 'denied') {
+            setPermissionDenied(true);
+            return;
+        }
+        if (picked) {
+            setAttachment(picked);
+        }
+    };
 
     const submit = () => {
         if (!trimmed) {
             return;
         }
-        onSend(trimmed);
+        onSend(trimmed, attachment ?? undefined);
         setBody('');
+        setAttachment(null);
     };
 
     return (
         <View
             style={[
-                styles.composer,
+                styles.composerContainer,
                 { backgroundColor: theme.surface, borderTopColor: theme.rule, paddingBottom: Math.max(insets.bottom, Spacing.three) },
             ]}>
-            <TextInput
-                testID="message-input"
-                value={body}
-                onChangeText={setBody}
-                placeholder="Write a reply"
-                placeholderTextColor={theme.textSecondary}
-                multiline
-                style={[styles.composerInput, { borderColor: theme.rule, color: theme.text }]}
-            />
-            <Pressable
-                testID="message-send"
-                accessibilityRole="button"
-                accessibilityLabel="Send"
-                disabled={!trimmed}
-                onPress={submit}
-                style={[
-                    styles.sendButton,
-                    { backgroundColor: theme.accent },
-                    !trimmed && styles.sendButtonDisabled,
-                ]}>
-                <ThemedText style={styles.sendButtonText}>Send</ThemedText>
-            </Pressable>
+            {permissionDenied ? (
+                <View style={[styles.permissionBanner, { backgroundColor: theme.backgroundElement }]}>
+                    <ThemedText type="small" style={styles.permissionText}>
+                        Relay needs access to your photos to attach an image.
+                    </ThemedText>
+                    <Pressable
+                        testID="open-settings"
+                        accessibilityRole="button"
+                        hitSlop={8}
+                        onPress={() => Linking.openSettings()}>
+                        <ThemedText type="link" themeColor="accent">
+                            Open Settings
+                        </ThemedText>
+                    </Pressable>
+                </View>
+            ) : null}
+            {attachment ? (
+                <View style={[styles.preview, { borderColor: theme.rule }]}>
+                    {isImageMime(attachment.mimeType) ? (
+                        <Image source={{ uri: attachment.uri }} style={styles.previewImage} contentFit="cover" />
+                    ) : (
+                        <View style={[styles.previewFileIcon, { backgroundColor: theme.backgroundElement }]}>
+                            <ThemedText type="small" numberOfLines={1} style={styles.previewFileName}>
+                                {attachment.name}
+                            </ThemedText>
+                        </View>
+                    )}
+                    <Pressable
+                        testID="remove-attachment"
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove attachment"
+                        hitSlop={8}
+                        onPress={() => setAttachment(null)}
+                        style={[styles.previewRemove, { backgroundColor: theme.text }]}>
+                        <ThemedText style={[styles.previewRemoveText, { color: theme.surface }]}>×</ThemedText>
+                    </Pressable>
+                </View>
+            ) : null}
+            <View style={styles.composer}>
+                <Pressable
+                    testID="attach-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="Attach a photo"
+                    hitSlop={8}
+                    onPress={attach}
+                    style={[styles.attachButton, { borderColor: theme.rule }]}>
+                    <ThemedText style={[styles.attachButtonText, { color: theme.accent }]}>+</ThemedText>
+                </Pressable>
+                <TextInput
+                    testID="message-input"
+                    value={body}
+                    onChangeText={setBody}
+                    placeholder="Write a reply"
+                    placeholderTextColor={theme.textSecondary}
+                    multiline
+                    style={[styles.composerInput, { borderColor: theme.rule, color: theme.text }]}
+                />
+                <Pressable
+                    testID="message-send"
+                    accessibilityRole="button"
+                    accessibilityLabel="Send"
+                    disabled={!trimmed}
+                    onPress={submit}
+                    style={[
+                        styles.sendButton,
+                        { backgroundColor: theme.accent },
+                        !trimmed && styles.sendButtonDisabled,
+                    ]}>
+                    <ThemedText style={styles.sendButtonText}>Send</ThemedText>
+                </Pressable>
+            </View>
         </View>
     );
 }
@@ -221,13 +441,19 @@ export default function TicketThreadScreen() {
     );
 
     const send = useCallback(
-        (body: string, clientId: string = newIdempotencyKey()) => {
+        (body: string, file?: PickedFile, clientId: string = newIdempotencyKey()) => {
             setPending((current) => [
                 ...current.filter((p) => p.clientId !== clientId),
-                { clientId, body, status: 'sending' },
+                { clientId, body, file, status: 'sending' },
             ]);
 
-            sendMessage(ticketId, body, clientId)
+            const onProgress = (fraction: number) => {
+                setPending((current) =>
+                    current.map((p) => (p.clientId === clientId ? { ...p, progress: fraction } : p)),
+                );
+            };
+
+            sendMessage(ticketId, body, clientId, file, file ? onProgress : undefined)
                 .then((message) => {
                     setPending((current) => current.filter((p) => p.clientId !== clientId));
                     append(message);
@@ -245,7 +471,7 @@ export default function TicketThreadScreen() {
         (clientId: string) => {
             const entry = pending.find((p) => p.clientId === clientId);
             if (entry) {
-                send(entry.body, clientId);
+                send(entry.body, entry.file, clientId);
             }
         },
         [pending, send],
@@ -375,6 +601,37 @@ const styles = StyleSheet.create({
         fontSize: 15,
         lineHeight: 21,
     },
+    pendingFileName: {
+        marginTop: Spacing.one,
+    },
+    attachmentsList: {
+        marginTop: Spacing.two,
+        gap: Spacing.two,
+    },
+    attachmentImageWrap: {
+        borderRadius: Spacing.two,
+        overflow: 'hidden',
+    },
+    attachmentImage: {
+        width: '100%',
+        // A "sensible max height": tall enough to read a screenshot, short enough
+        // that one photo never pushes the rest of the thread off screen.
+        height: 220,
+    },
+    attachmentRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: Spacing.two,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderRadius: Spacing.two,
+        paddingHorizontal: Spacing.three,
+        paddingVertical: Spacing.two,
+    },
+    attachmentRowName: {
+        flex: 1,
+        fontFamily: FontFamily.sansMedium,
+    },
     caption: {
         marginTop: Spacing.one,
         paddingHorizontal: Spacing.one,
@@ -417,13 +674,77 @@ const styles = StyleSheet.create({
         color: '#ffffff',
         fontFamily: FontFamily.sansSemiBold,
     },
+    composerContainer: {
+        borderTopWidth: StyleSheet.hairlineWidth,
+        paddingHorizontal: Spacing.three,
+        paddingTop: Spacing.three,
+    },
+    permissionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: Spacing.three,
+        borderRadius: Spacing.two,
+        paddingHorizontal: Spacing.three,
+        paddingVertical: Spacing.two,
+        marginBottom: Spacing.two,
+    },
+    permissionText: {
+        flex: 1,
+    },
+    preview: {
+        alignSelf: 'flex-start',
+        marginBottom: Spacing.two,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderRadius: Spacing.two,
+        overflow: 'visible',
+    },
+    previewImage: {
+        width: 72,
+        height: 72,
+        borderRadius: Spacing.two,
+    },
+    previewFileIcon: {
+        width: 140,
+        height: 72,
+        borderRadius: Spacing.two,
+        justifyContent: 'center',
+        paddingHorizontal: Spacing.two,
+    },
+    previewFileName: {
+        fontFamily: FontFamily.sansMedium,
+    },
+    previewRemove: {
+        position: 'absolute',
+        top: -8,
+        right: -8,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    previewRemoveText: {
+        fontSize: 14,
+        lineHeight: 16,
+    },
     composer: {
         flexDirection: 'row',
         alignItems: 'flex-end',
         gap: Spacing.two,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        paddingHorizontal: Spacing.three,
-        paddingVertical: Spacing.three,
+        paddingBottom: Spacing.three,
+    },
+    attachButton: {
+        minHeight: 44,
+        minWidth: 44,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderRadius: Spacing.two,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    attachButtonText: {
+        fontSize: 22,
+        lineHeight: 24,
     },
     composerInput: {
         flex: 1,

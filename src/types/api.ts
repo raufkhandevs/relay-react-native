@@ -21,11 +21,20 @@ export type Ticket = {
     created_at: string;
 };
 
+export type Attachment = {
+    id: number;
+    original_name: string;
+    mime: string;
+    size_bytes: number;
+    created_at: string;
+};
+
 export type Message = {
     id: number;
     ticket_id: number;
     body: string;
     author: Participant;
+    attachments: Attachment[];
     created_at: string;
 };
 
