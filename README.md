@@ -8,6 +8,24 @@ the design and decision records. The API and websocket server live in
 [relay-laravel](https://github.com/raufkhandevs/relay-laravel) and must be running for this app to
 do anything.
 
+## Progress
+
+```
+Login, Keychain token     ████████████████████  done
+Ticket list and thread    ████████████████████  done
+Live messages             ████████████████████  done
+Reply and photo upload    ████████████████████  done
+Light and dark            ████████████████████  done
+Typing indicator          ░░░░░░░░░░░░░░░░░░░░  next
+Offline outbox            ░░░░░░░░░░░░░░░░░░░░
+Camera capture            ░░░░░░░░░░░░░░░░░░░░  needs a device
+Push notifications        ░░░░░░░░░░░░░░░░░░░░  blocked
+```
+
+**Blocked, not forgotten.** Push needs an Apple Developer Program membership, which this project
+does not buy. Camera capture is unbuilt because the simulator has no camera, and building a path
+that cannot be tested is how untested paths ship.
+
 ## Running it
 
 The backend first, in its own checkout:
