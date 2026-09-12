@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput } from 'react-native';
 import { router } from 'expo-router';
 import * as Device from 'expo-device';
@@ -9,7 +9,6 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { api, readableApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { loginBridge } from '@/lib/dev-bridge';
 import type { User } from '@/types/api';
 
 export default function LoginScreen() {
@@ -39,23 +38,6 @@ export default function LoginScreen() {
             setSubmitting(false);
         }
     }
-
-    // Lets the dev-only deep link bridge drive this exact submit path (see lib/dev-bridge.tsx).
-    useEffect(() => {
-        if (!__DEV__) {
-            return;
-        }
-        loginBridge.current = {
-            submit: (bridgeEmail, bridgePassword) => {
-                setEmail(bridgeEmail);
-                setPassword(bridgePassword);
-                handleSubmit(bridgeEmail, bridgePassword);
-            },
-        };
-        return () => {
-            loginBridge.current = null;
-        };
-    });
 
     return (
         <ThemedView style={styles.container}>

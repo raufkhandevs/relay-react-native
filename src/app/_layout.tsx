@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { DevLinkBridge } from '@/lib/dev-bridge';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -40,7 +39,6 @@ export default function RootLayout() {
       <AuthProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
           <AnimatedSplashOverlay />
-          <DevLinkBridge />
           <RootNavigator />
         </ThemeProvider>
       </AuthProvider>
