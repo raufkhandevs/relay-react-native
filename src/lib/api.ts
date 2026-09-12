@@ -47,14 +47,12 @@ export const api = {
 
 /**
  * GET /attachments/{id} authorises against the ticket, then redirects to a presigned
- * storage URL. `fetch` follows that redirect itself, so `response.url` is the presigned
- * URL, resolved fresh on every call rather than ever being cached or stored - it expires
- * in 5 minutes, and re-resolving is how the server's authorisation runs each time.
+ * storage URL for a browser. This client asks for JSON instead and gets `{url}` back,
+ * because React Native's `fetch` has no `redirect: 'manual'`: following the redirect to
+ * read its destination would mean downloading the entire file just to learn an address.
  *
- * ponytail: this downloads the whole file just to read the final URL, since RN's `fetch`
- * (a `whatwg-fetch`/XHR polyfill) has no `redirect: 'manual'` support to read the
- * Location header without following it. Fine at the 10 MB cap this slice enforces;
- * revisit if attachments grow past that or this call gets hot.
+ * The URL is resolved fresh on every call and never cached. It expires in five minutes,
+ * and re-resolving is what makes the server re-run authorisation each time.
  */
 export async function resolveAttachmentUrl(attachmentId: number): Promise<string> {
     const token = await getToken();
@@ -70,7 +68,9 @@ export async function resolveAttachmentUrl(attachmentId: number): Promise<string
         throw new ApiError(response.status, await response.text());
     }
 
-    return response.url;
+    const { url } = (await response.json()) as { url: string };
+
+    return url;
 }
 
 /** ApiError.message is the raw response body, often `{"message": "..."}`. Unwrap it for display. */
