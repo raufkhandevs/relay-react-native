@@ -293,6 +293,9 @@ function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => voi
     const [attachment, setAttachment] = useState<PickedFile | null>(null);
     const [permissionDenied, setPermissionDenied] = useState(false);
     const trimmed = body.trim();
+    // A photo often needs no caption, so a message is sendable with text, a file, or
+    // both. The API agrees: body is required only when no file is present.
+    const canSend = trimmed.length > 0 || attachment !== null;
 
     const attach = async () => {
         setPermissionDenied(false);
@@ -307,7 +310,7 @@ function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => voi
     };
 
     const submit = () => {
-        if (!trimmed) {
+        if (!canSend) {
             return;
         }
         onSend(trimmed, attachment ?? undefined);
@@ -382,12 +385,12 @@ function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => voi
                     testID="message-send"
                     accessibilityRole="button"
                     accessibilityLabel="Send"
-                    disabled={!trimmed}
+                    disabled={!canSend}
                     onPress={submit}
                     style={[
                         styles.sendButton,
                         { backgroundColor: theme.accent },
-                        !trimmed && styles.sendButtonDisabled,
+                        !canSend && styles.sendButtonDisabled,
                     ]}>
                     <ThemedText style={styles.sendButtonText}>Send</ThemedText>
                 </Pressable>
