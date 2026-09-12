@@ -1,7 +1,7 @@
 # Relay iOS
 
-The customer-facing iOS client for Relay, a support desk. Raise a ticket, read the thread, and
-watch an agent's reply arrive without touching anything.
+The customer-facing iOS client for Relay, a support desk. Read a thread, reply, and watch an
+agent's answer arrive without touching anything.
 
 One of four repos. The parent, [raufkhandevs/relay](https://github.com/raufkhandevs/relay), holds
 the design and decision records. The API and websocket server live in
@@ -80,3 +80,9 @@ by identity rather than screen position:
 This matters more on React Native than on the web: RN `Text` frequently does not appear in the
 accessibility tree, so matching on visible words fails even when they are plainly on screen. Any
 new interactive element gets a `testID`.
+
+## Design
+
+Palette, type and the status-edge device are shared with the other two clients and defined in
+the parent repo's `docs/decisions/0009-one-design-system-two-densities.md`. The customer surfaces
+run the system roomy; the agent console runs it compact.
