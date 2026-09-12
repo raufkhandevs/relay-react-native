@@ -5,28 +5,39 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { DangerColor, FontFamily, Spacing, StatusColors, StatusLabels } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth';
 import { readableApiError } from '@/lib/api';
 import { useMe, useTickets } from '@/lib/queries';
-import type { Ticket, TicketStatus } from '@/types/api';
+import type { Ticket } from '@/types/api';
 
-const ROW_HEIGHT = 72;
+// Roomy: this is the customer surface (decision 0009). The agent console
+// runs the same tokens compact; this client never does.
+const ROW_HEIGHT = 92;
 
-const STATUS_COLORS: Record<TicketStatus, string> = {
-    open: '#208AEF',
-    pending: '#E8A33D',
-    resolved: '#2FA84F',
-    closed: '#8A8F98',
-};
+// Intl.RelativeTimeFormat is not present in this app's Hermes build (confirmed by an
+// "undefined cannot be used as a constructor" crash on launch), so this formats "N
+// units ago" by hand rather than reaching for a polyfill or a date library.
+const RELATIVE_UNITS: [string, number][] = [
+    ['year', 60 * 60 * 24 * 365],
+    ['month', 60 * 60 * 24 * 30],
+    ['week', 60 * 60 * 24 * 7],
+    ['day', 60 * 60 * 24],
+    ['hour', 60 * 60],
+    ['minute', 60],
+];
 
-function StatusPill({ status }: { status: TicketStatus }) {
-    return (
-        <View style={[styles.pill, { backgroundColor: STATUS_COLORS[status] }]}>
-            <ThemedText style={styles.pillText}>{status}</ThemedText>
-        </View>
-    );
+/** "3 hours ago", falling back to "just now" for anything under a minute. */
+function formatRelativeTime(iso: string): string {
+    const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+    for (const [unit, unitSeconds] of RELATIVE_UNITS) {
+        if (seconds >= unitSeconds) {
+            const count = Math.round(seconds / unitSeconds);
+            return `${count} ${unit}${count === 1 ? '' : 's'} ago`;
+        }
+    }
+    return 'just now';
 }
 
 function TicketRow({ ticket }: { ticket: Ticket }) {
@@ -40,17 +51,26 @@ function TicketRow({ ticket }: { ticket: Ticket }) {
             testID={`ticket-row-${ticket.id}`}
             accessibilityRole="button"
             accessibilityLabel={`Ticket ${ticket.id}: ${ticket.subject}`}
-            style={[styles.row, { borderColor: theme.backgroundElement }]}
+            style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.rule }]}
             onPress={() => router.push(`/tickets/${ticket.id}`)}>
-            <View style={styles.rowText}>
-                <ThemedText numberOfLines={1} style={styles.subject}>
+            {/* Status is a 3px coloured left edge, never a pill: decision 0009. */}
+            <View style={[styles.edge, { backgroundColor: StatusColors[ticket.status] }]} />
+            <View style={styles.cardBody}>
+                <ThemedText numberOfLines={1} type="smallBold" style={styles.subject}>
                     {ticket.subject}
                 </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                    TKT-{ticket.id}
-                </ThemedText>
+                <View style={styles.metaRow}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.mono}>
+                        TKT-{ticket.id}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                        {StatusLabels[ticket.status]}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.mono}>
+                        {formatRelativeTime(ticket.last_message_at ?? ticket.created_at)}
+                    </ThemedText>
+                </View>
             </View>
-            <StatusPill status={ticket.status} />
         </Pressable>
     );
 }
@@ -58,13 +78,14 @@ function TicketRow({ ticket }: { ticket: Ticket }) {
 function SkeletonRow() {
     const theme = useTheme();
     return (
-        <View style={[styles.row, { borderColor: theme.backgroundElement }]}>
-            <View style={styles.rowText}>
+        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.rule }]}>
+            <View style={[styles.edge, { backgroundColor: theme.backgroundElement }]} />
+            <View style={styles.cardBody}>
                 <View style={[styles.skeletonBlock, { width: '70%', backgroundColor: theme.backgroundElement }]} />
                 <View
                     style={[
                         styles.skeletonBlock,
-                        { width: 60, height: 12, marginTop: 6, backgroundColor: theme.backgroundElement },
+                        { width: 100, height: 12, marginTop: Spacing.two, backgroundColor: theme.backgroundElement },
                     ]}
                 />
             </View>
@@ -92,6 +113,7 @@ function useDelayedLoading(isLoading: boolean, delayMs = 200) {
 
 export default function TicketListScreen() {
     const insets = useSafeAreaInsets();
+    const theme = useTheme();
     const { signOut } = useAuth();
     const { data: me } = useMe();
     const { data, isLoading, isError, error, refetch, isRefetching } = useTickets(me?.id);
@@ -99,12 +121,12 @@ export default function TicketListScreen() {
 
     return (
         <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-            <View style={styles.header}>
+            <View style={[styles.header, { borderBottomColor: theme.rule }]}>
                 <ThemedText type="title" style={styles.headerTitle}>
                     Tickets
                 </ThemedText>
-                <Pressable style={styles.signOut} onPress={() => signOut()} hitSlop={8}>
-                    <ThemedText type="link" themeColor="textSecondary">
+                <Pressable testID="sign-out" style={styles.signOut} onPress={() => signOut()} hitSlop={8}>
+                    <ThemedText type="link" themeColor="accent">
                         Sign out
                     </ThemedText>
                 </Pressable>
@@ -112,8 +134,13 @@ export default function TicketListScreen() {
 
             {isError ? (
                 <View style={styles.centered}>
-                    <ThemedText style={styles.errorText}>{readableApiError(error)}</ThemedText>
-                    <Pressable style={styles.retryButton} onPress={() => refetch()}>
+                    <ThemedText style={[styles.errorText, { color: DangerColor }]}>
+                        {readableApiError(error)}
+                    </ThemedText>
+                    <Pressable
+                        testID="retry-tickets"
+                        style={[styles.retryButton, { backgroundColor: theme.accent }]}
+                        onPress={() => refetch()}>
                         <ThemedText style={styles.retryButtonText}>Retry</ThemedText>
                     </Pressable>
                 </View>
@@ -121,6 +148,7 @@ export default function TicketListScreen() {
                 <FlatList
                     data={[1, 2, 3, 4, 5]}
                     keyExtractor={(item) => String(item)}
+                    contentContainerStyle={styles.listContent}
                     renderItem={() => <SkeletonRow />}
                 />
             ) : isLoading ? null : data && data.data.length === 0 ? (
@@ -136,7 +164,7 @@ export default function TicketListScreen() {
                     renderItem={({ item }) => <TicketRow ticket={item} />}
                     refreshing={isRefetching}
                     onRefresh={refetch}
-                    contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.three }}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + Spacing.three }]}
                 />
             )}
         </ThemedView>
@@ -151,8 +179,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: Spacing.three,
-        paddingVertical: Spacing.three,
+        paddingHorizontal: Spacing.four,
+        paddingVertical: Spacing.four,
+        borderBottomWidth: StyleSheet.hairlineWidth,
     },
     headerTitle: {
         fontSize: 28,
@@ -164,32 +193,40 @@ const styles = StyleSheet.create({
         alignItems: 'flex-end',
         justifyContent: 'center',
     },
-    row: {
-        height: ROW_HEIGHT,
+    listContent: {
+        padding: Spacing.four,
+        gap: Spacing.three,
+    },
+    card: {
+        minHeight: ROW_HEIGHT,
+        flexDirection: 'row',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderRadius: Spacing.two,
+        overflow: 'hidden',
+    },
+    edge: {
+        width: 3,
+        alignSelf: 'stretch',
+    },
+    cardBody: {
+        flex: 1,
+        justifyContent: 'center',
+        gap: Spacing.two,
+        paddingHorizontal: Spacing.four,
+        paddingVertical: Spacing.three,
+    },
+    subject: {
+        fontSize: 17,
+    },
+    metaRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: Spacing.three,
-        borderBottomWidth: StyleSheet.hairlineWidth * 2,
         gap: Spacing.two,
     },
-    rowText: {
-        flex: 1,
-        gap: 4,
-    },
-    subject: {
-        fontWeight: '600',
-    },
-    pill: {
-        paddingHorizontal: Spacing.two,
-        paddingVertical: 4,
-        borderRadius: 999,
-    },
-    pillText: {
-        color: '#ffffff',
+    mono: {
+        fontFamily: FontFamily.mono,
         fontSize: 12,
-        fontWeight: '600',
-        textTransform: 'capitalize',
     },
     skeletonBlock: {
         height: 16,
@@ -207,17 +244,15 @@ const styles = StyleSheet.create({
     },
     errorText: {
         textAlign: 'center',
-        color: '#c0392b',
     },
     retryButton: {
         minHeight: 44,
         paddingHorizontal: Spacing.four,
         justifyContent: 'center',
-        backgroundColor: '#208AEF',
         borderRadius: Spacing.two,
     },
     retryButtonText: {
         color: '#ffffff',
-        fontWeight: '600',
+        fontFamily: FontFamily.sansSemiBold,
     },
 });
