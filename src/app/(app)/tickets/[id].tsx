@@ -47,6 +47,13 @@ function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean })
     return (
         <View style={[styles.bubbleRow, isOwn && styles.bubbleRowOwn]}>
             <View
+                // Assertion target. React Native Text frequently does not reach the
+                // accessibility tree, so matching on the rendered words fails even when
+                // they are plainly on screen. Without this an automated check cannot tell
+                // a delivered message from a missing one.
+                testID={`message-${message.id}`}
+                accessible
+                accessibilityLabel={`${message.author.name}: ${message.body}`}
                 style={[
                     styles.bubble,
                     isOwn
