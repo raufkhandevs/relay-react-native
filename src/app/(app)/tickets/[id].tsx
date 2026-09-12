@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { TypingBubble } from '@/components/typing-bubble';
 import { DangerColor, FontFamily, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useTicketChannel } from '@/hooks/use-ticket-channel';
@@ -42,6 +43,14 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
     hour: 'numeric',
     minute: '2-digit',
 });
+
+// Hide the bubble this long after the last whisper. Never wait for a
+// "stopped typing" message: the sender can close the app or lose signal
+// mid-word, and this is what keeps the bubble from getting stuck forever.
+const TYPING_EXPIRY_MS = 3000;
+// At most one whisper per second, leading edge: the first keystroke of a
+// burst fires immediately and the rest are swallowed until the second is up.
+const TYPING_THROTTLE_MS = 1000;
 
 /** A message timestamp: bare time for today, date and time otherwise. */
 function formatTimestamp(iso: string): string {
@@ -286,12 +295,19 @@ async function pickLibraryImage(): Promise<PickedFile | null | 'denied'> {
     };
 }
 
-function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => void }) {
+function Composer({
+    onSend,
+    onTyping,
+}: {
+    onSend: (body: string, file?: PickedFile) => void;
+    onTyping: () => void;
+}) {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const [body, setBody] = useState('');
     const [attachment, setAttachment] = useState<PickedFile | null>(null);
     const [permissionDenied, setPermissionDenied] = useState(false);
+    const lastTypingSentAt = useRef(0);
     const trimmed = body.trim();
     // A photo often needs no caption, so a message is sendable with text, a file, or
     // both. The API agrees: body is required only when no file is present.
@@ -316,6 +332,16 @@ function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => voi
         onSend(trimmed, attachment ?? undefined);
         setBody('');
         setAttachment(null);
+    };
+
+    const changeBody = (text: string) => {
+        setBody(text);
+
+        const now = Date.now();
+        if (now - lastTypingSentAt.current >= TYPING_THROTTLE_MS) {
+            lastTypingSentAt.current = now;
+            onTyping();
+        }
     };
 
     return (
@@ -375,7 +401,7 @@ function Composer({ onSend }: { onSend: (body: string, file?: PickedFile) => voi
                 <TextInput
                     testID="message-input"
                     value={body}
-                    onChangeText={setBody}
+                    onChangeText={changeBody}
                     placeholder="Write a reply"
                     placeholderTextColor={theme.textSecondary}
                     multiline
@@ -415,6 +441,36 @@ export default function TicketThreadScreen() {
     const history = useMemo(() => (data ? [...data.data].reverse() : []), [data]);
     const [liveMessages, setLiveMessages] = useState<Message[]>([]);
     const [pending, setPending] = useState<PendingMessage[]>([]);
+    const [typingName, setTypingName] = useState<string | null>(null);
+    const typingExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Cleared and restarted on every whisper, so the bubble only disappears
+    // once TYPING_EXPIRY_MS has passed with no further whisper.
+    const handleTypingReceived = useCallback(
+        (name: string) => {
+            if (name === me?.name) {
+                return;
+            }
+
+            setTypingName(name);
+
+            if (typingExpiryRef.current) {
+                clearTimeout(typingExpiryRef.current);
+            }
+            typingExpiryRef.current = setTimeout(() => {
+                setTypingName(null);
+            }, TYPING_EXPIRY_MS);
+        },
+        [me?.name],
+    );
+
+    useEffect(() => {
+        return () => {
+            if (typingExpiryRef.current) {
+                clearTimeout(typingExpiryRef.current);
+            }
+        };
+    }, []);
 
     const append = useCallback(
         (incoming: Message) => {
@@ -430,7 +486,13 @@ export default function TicketThreadScreen() {
         [me?.id],
     );
 
-    useTicketChannel(ticketId, append);
+    const { whisperTyping } = useTicketChannel(ticketId, append, handleTypingReceived);
+
+    const sendTyping = useCallback(() => {
+        if (me) {
+            whisperTyping(me.name);
+        }
+    }, [whisperTyping, me]);
 
     // De-duplicate live messages against history: the sender receives their own
     // broadcast, so a message that has already landed in a history refetch would
@@ -534,18 +596,19 @@ export default function TicketThreadScreen() {
                         // bubble has actually been measured, unlike scrolling on the state update.
                         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
                         ListFooterComponent={
-                            pending.length > 0 ? (
+                            pending.length > 0 || typingName ? (
                                 <View style={styles.pendingList}>
                                     {pending.map((entry) => (
                                         <PendingBubble key={entry.clientId} entry={entry} onRetry={retry} />
                                     ))}
+                                    {typingName ? <TypingBubble name={typingName} /> : null}
                                 </View>
                             ) : null
                         }
                     />
                 )}
 
-                <Composer onSend={send} />
+                <Composer onSend={send} onTyping={sendTyping} />
             </ThemedView>
         </KeyboardAvoidingView>
     );
