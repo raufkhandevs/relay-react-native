@@ -57,7 +57,7 @@ function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean })
                 style={[
                     styles.bubble,
                     isOwn
-                        ? { backgroundColor: 'rgba(29, 111, 139, 0.12)' }
+                        ? { backgroundColor: theme.surfaceOwn }
                         : { backgroundColor: theme.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.rule },
                 ]}>
                 <ThemedText style={styles.bubbleText}>{message.body}</ThemedText>
@@ -73,9 +73,10 @@ function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean })
 }
 
 function PendingBubble({ entry, onRetry }: { entry: PendingMessage; onRetry: (clientId: string) => void }) {
+    const theme = useTheme();
     return (
         <View style={[styles.bubbleRow, styles.bubbleRowOwn]}>
-            <View style={[styles.bubble, styles.bubblePending]}>
+            <View style={[styles.bubble, styles.bubblePending, { backgroundColor: theme.surfaceOwn }]}>
                 <ThemedText style={styles.bubbleText}>{entry.body}</ThemedText>
             </View>
             {entry.status === 'sending' ? (
@@ -366,7 +367,8 @@ const styles = StyleSheet.create({
         paddingVertical: Spacing.three,
     },
     bubblePending: {
-        backgroundColor: 'rgba(29, 111, 139, 0.12)',
+        // backgroundColor comes from the theme at the call site; a StyleSheet
+        // cannot see the colour scheme.
         opacity: 0.6,
     },
     bubbleText: {

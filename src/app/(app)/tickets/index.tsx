@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { DangerColor, FontFamily, Spacing, StatusColors, StatusLabels } from '@/constants/theme';
+import { DangerColor, FontFamily, Spacing, StatusLabels, statusColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth';
 import { readableApiError } from '@/lib/api';
@@ -54,7 +54,7 @@ function TicketRow({ ticket }: { ticket: Ticket }) {
             style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.rule }]}
             onPress={() => router.push(`/tickets/${ticket.id}`)}>
             {/* Status is a 3px coloured left edge, never a pill: decision 0009. */}
-            <View style={[styles.edge, { backgroundColor: StatusColors[ticket.status] }]} />
+            <View style={[styles.edge, { backgroundColor: statusColor(theme, ticket.status) }]} />
             <View style={styles.cardBody}>
                 <ThemedText numberOfLines={1} type="smallBold" style={styles.subject}>
                     {ticket.subject}
