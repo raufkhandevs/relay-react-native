@@ -1,7 +1,24 @@
-import Echo from 'laravel-echo';
+import EchoImport from 'laravel-echo';
 import Pusher from 'pusher-js';
 
-import { API_BASE } from './api';
+import { API_BASE } from './config';
+
+import type Echo from 'laravel-echo';
+
+// laravel-echo ships an ESM build exporting the class as `default` and a CJS build setting
+// `exports.default`, and depending on which one Metro resolves, the imported binding is
+// either the class or a namespace wrapping it. Unwrap defensively.
+//
+// This runs inside getEcho() rather than at module scope on purpose. There is a require
+// cycle (auth -> echo -> api -> auth), and in a cycle Metro hands a module a partially
+// initialised binding while the cycle is still resolving. Unwrapping at module scope
+// therefore captured an object rather than the class, and `new` on it failed with
+// "Object cannot be used as a constructor". Resolving at call time sidesteps the ordering.
+function resolveEchoConstructor(): typeof EchoImport {
+    const candidate = EchoImport as unknown as { default?: typeof EchoImport };
+
+    return (typeof candidate === 'function' ? candidate : candidate?.default) as typeof EchoImport;
+}
 
 // Metro resolves pusher-js's own "react-native" package.json field automatically
 // (see node_modules/pusher-js/package.json), which ships a React Native runtime
@@ -33,7 +50,9 @@ export function getEcho(token: string | null): Echo<'reverb'> {
         );
     }
 
-    echo = new Echo<'reverb'>({
+    const EchoConstructor = resolveEchoConstructor();
+
+    echo = new EchoConstructor<'reverb'>({
         broadcaster: 'reverb',
         Pusher,
         key,
