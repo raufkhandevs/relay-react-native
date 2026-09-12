@@ -1,24 +1,17 @@
-import EchoImport from 'laravel-echo';
-import Pusher from 'pusher-js';
+import Echo from 'laravel-echo';
+import * as PusherModule from 'pusher-js';
 
 import { API_BASE } from './config';
 
-import type Echo from 'laravel-echo';
 
-// laravel-echo ships an ESM build exporting the class as `default` and a CJS build setting
-// `exports.default`, and depending on which one Metro resolves, the imported binding is
-// either the class or a namespace wrapping it. Unwrap defensively.
-//
-// This runs inside getEcho() rather than at module scope on purpose. There is a require
-// cycle (auth -> echo -> api -> auth), and in a cycle Metro hands a module a partially
-// initialised binding while the cycle is still resolving. Unwrapping at module scope
-// therefore captured an object rather than the class, and `new` on it failed with
-// "Object cannot be used as a constructor". Resolving at call time sidesteps the ordering.
-function resolveEchoConstructor(): typeof EchoImport {
-    const candidate = EchoImport as unknown as { default?: typeof EchoImport };
-
-    return (typeof candidate === 'function' ? candidate : candidate?.default) as typeof EchoImport;
-}
+// pusher-js's React Native build exports the class as a NAMED export, not a default,
+// so a default import is the module namespace `{ Pusher }`. laravel-echo does
+// `new options.Pusher(...)` internally, which then fails with "Object cannot be used as
+// a constructor" and surfaces at the `new Echo(...)` call site rather than here.
+// laravel-echo's own default export is a real class and needs no unwrapping.
+type PusherClass = typeof import('pusher-js').default;
+const Pusher = ((PusherModule as unknown as { Pusher?: PusherClass }).Pusher ??
+    PusherModule) as PusherClass;
 
 // Metro resolves pusher-js's own "react-native" package.json field automatically
 // (see node_modules/pusher-js/package.json), which ships a React Native runtime
@@ -50,9 +43,9 @@ export function getEcho(token: string | null): Echo<'reverb'> {
         );
     }
 
-    const EchoConstructor = resolveEchoConstructor();
 
-    echo = new EchoConstructor<'reverb'>({
+
+    echo = new Echo<'reverb'>({
         broadcaster: 'reverb',
         Pusher,
         key,
