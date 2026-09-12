@@ -16,8 +16,8 @@ Ticket list and thread    ██████████████████
 Live messages             ████████████████████  done
 Reply and photo upload    ████████████████████  done
 Light and dark            ████████████████████  done
-Typing indicator          ░░░░░░░░░░░░░░░░░░░░  next
-Offline outbox            ░░░░░░░░░░░░░░░░░░░░
+Typing indicator          ████████████████████  done
+Offline outbox            ░░░░░░░░░░░░░░░░░░░░  next
 Camera capture            ░░░░░░░░░░░░░░░░░░░░  needs a device
 Push notifications        ░░░░░░░░░░░░░░░░░░░░  blocked
 ```
