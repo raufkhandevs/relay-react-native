@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type PropsWithChildren 
 import * as SecureStore from 'expo-secure-store';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { API_BASE } from './config';
 import { disconnectEcho } from './echo';
 
 const TOKEN_KEY = 'relay.token';
@@ -56,6 +57,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
 
     const signOut = async () => {
+        // Revoke server side first, while the token is still in the Keychain for the
+        // request to carry. Sanctum deletes only the current token, so signing out here
+        // does not sign the same account out on the web or desktop clients. Best effort:
+        // a failure must not trap the user in a signed-in state, so the local clear below
+        // happens either way.
+        try {
+            const current = await getToken();
+            if (current) {
+                await fetch(`${API_BASE}/api/tokens/current`, {
+                    method: 'DELETE',
+                    headers: { Accept: 'application/json', Authorization: `Bearer ${current}` },
+                });
+            }
+        } catch {
+            // Offline or already-expired token. Nothing to recover; clear locally anyway.
+        }
+
         await clearToken();
         // The QueryClient and the Echo connection both live for the whole app process
         // (see _layout.tsx and lib/echo.ts), so without this a second person signing in

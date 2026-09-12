@@ -33,9 +33,15 @@ function TicketRow({ ticket }: { ticket: Ticket }) {
     const theme = useTheme();
     return (
         <Pressable
+            // Automation finds rows by this, not by reading the subject text. React Native
+            // Text often does not surface in the accessibility tree, so a text matcher
+            // fails even when the words are plainly on screen, and the fallback is pixel
+            // coordinates that break on any layout change.
+            testID={`ticket-row-${ticket.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Ticket ${ticket.id}: ${ticket.subject}`}
             style={[styles.row, { borderColor: theme.backgroundElement }]}
-            // `/tickets/[id]` doesn't exist until task 4; cast past typed-routes until then.
-            onPress={() => router.push(`/tickets/${ticket.id}` as never)}>
+            onPress={() => router.push(`/tickets/${ticket.id}`)}>
             <View style={styles.rowText}>
                 <ThemedText numberOfLines={1} style={styles.subject}>
                     {ticket.subject}
